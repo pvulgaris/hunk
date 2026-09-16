@@ -1626,6 +1626,7 @@ export function App({
             codeHorizontalOffset={codeHorizontalOffset}
             copyDecorations={copyDecorations}
             diffContentWidth={diffContentWidth}
+            leadingText={bootstrap.review?.kind === "commit" ? bootstrap.review.body : undefined}
             expandedGapsByFileId={review.expandedGapsByFileId}
             fileViews={fileViewLayouts}
             files={filteredFiles}

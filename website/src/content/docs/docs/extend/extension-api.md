@@ -71,7 +71,7 @@ all strings and the 4 KiB payload, rejects control characters, unknown fields, a
 then copies and freezes it. `provider` and change-request `id` allow 256 bytes; `repository`,
 `author`, `base`, `head`, and `revision` allow 512; `authoredAt` allows 128; `title` and `url`
 allow 2 KiB. Change requests may also carry `state` (`open`, `closed`, or `merged`) and boolean
-`draft`; commits may carry a parseable `authoredAt` date-time. The descriptor remains app-bootstrap metadata rather than entering
+`draft`; commits may carry a parseable `authoredAt` date-time and a multi-line `body` of up to 16 KiB, bounded separately from the summary budget, in which newlines and tabs are the only control characters allowed. The descriptor remains app-bootstrap metadata rather than entering
 changeset transforms or `ReviewDocumentV1`; same-file refreshes preserve it, while unrelated
 reloads clear it. Commits opened from interactive `hunk log` receive the same metadata shape and
 retain it while refreshing the exact provider review request. Live-session list, context, and review

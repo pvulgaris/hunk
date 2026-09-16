@@ -307,8 +307,9 @@ and retires the replaced instance at that explicit ownership boundary.
 
 ### `hunk.apiVersion`
 
-The API generation this Hunk speaks (currently `28`). Branch on it if you want
-one file to support several Hunk versions. Version 28 adds host-owned syntax highlighting for
+The API generation this Hunk speaks (currently `29`). Branch on it if you want
+one file to support several Hunk versions. Version 29 adds an optional multi-line `body` to commit
+descriptors; version 28 adds host-owned syntax highlighting for
 file-view code documents; version 27 adds `ctx.selection.files`, the visible files in review order;
 version 26 adds the status line (`ctx.statusLine` items and `ctx.prompts.line()` inline prompts);
 version 25 adds Promise-returning watch signatures and watch cancellation; version 24 adds review
@@ -382,11 +383,13 @@ built-in Hunk command.
 A delegated built-in `patch` command may include a provider-neutral `review` descriptor. Its
 `kind` is `change-request`, `commit`, or `comparison`; each exact shape combines bounded display
 strings with an optional credential-free HTTPS URL. Hunk rejects unknown fields, control
-characters, invalid types, unsafe URLs, fields over their byte limits, and descriptors over 4 KiB,
-then copies and freezes the accepted value. `provider` and change-request `id` allow 256 bytes;
+characters, invalid types, unsafe URLs, fields over their byte limits, and descriptors whose summary
+fields exceed 4 KiB, then copies and freezes the accepted value. `provider` and change-request `id` allow 256 bytes;
 `repository`, `author`, `base`, `head`, and `revision` allow 512; `authoredAt` allows 128;
 `title` and `url` allow 2 KiB. Change requests may also carry `state` (`open`, `closed`, or
-`merged`) and boolean `draft`; commits may carry a parseable `authoredAt` date-time. Exit results and delegation to any built-in other than
+`merged`) and boolean `draft`; commits may carry a parseable `authoredAt` date-time and a multi-line
+`body` of up to 16 KiB, bounded separately from the summary budget, in which newlines and tabs are
+the only control characters allowed. Exit results and delegation to any built-in other than
 `patch` cannot carry review metadata. An ordinary `hunk patch` has no descriptor.
 
 The descriptor describes the review source rather than its diff contents: it stays on the app
@@ -636,7 +639,9 @@ sides resolve to commits. Comparison `commits` are newest-first and bounded to e
 the exact total in `commitCount` when known. Commit descriptors and comparison commit rows carry the
 full immutable ID in `revision` for copying and should carry the provider-formatted short ID in
 `displayRevision` for display. `displayRevision` remains optional on a single commit for extensions
-built against an older API; Hunk abbreviates `revision` when it is absent. Omit `review` when either
+built against an older API; Hunk abbreviates `revision` when it is absent. A commit descriptor may
+also carry the message `body`; Hunk renders it at the top of the review stream, ahead of the first
+file, so it scrolls away with the diff. Omit `review` when either
 side is working-copy, staged, stash, or otherwise cannot be identified accurately. Hunk validates,
 copies, and freezes the descriptor before mounting it, then recomputes provider-supplied metadata on
 reload so moving refs do not retain stale information.

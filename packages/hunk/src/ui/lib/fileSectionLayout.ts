@@ -12,34 +12,44 @@ export interface FileSectionLayout {
   sectionBottom: number;
 }
 
-/** Return the in-stream header height for one review section. */
-export function getInStreamFileHeaderHeight(sectionIndex: number) {
-  return sectionIndex === 0 ? 0 : 1;
-}
-
-/** Return whether one review section should render its in-stream file header. */
-export function shouldRenderInStreamFileHeader(sectionIndex: number) {
-  return getInStreamFileHeaderHeight(sectionIndex) > 0;
+/**
+ * Return the in-stream header height for one review section.
+ *
+ * The first file's header is only pinned, unless leading rows precede it: then it renders in the
+ * stream after them so the leading text is not read as part of that file.
+ */
+export function getInStreamFileHeaderHeight(sectionIndex: number, hasLeadingRows = false) {
+  return sectionIndex === 0 && !hasLeadingRows ? 0 : 1;
 }
 
 /** Build the in-stream header heights for the current review stream. */
-export function buildInStreamFileHeaderHeights(files: DiffFile[]) {
-  return files.map((_, index) => getInStreamFileHeaderHeight(index));
+export function buildInStreamFileHeaderHeights(files: DiffFile[], hasLeadingRows = false) {
+  return files.map((_, index) => getInStreamFileHeaderHeight(index, hasLeadingRows));
 }
 
-/** Build absolute section offsets from file order, header heights, measured body heights, and file gap. */
+/**
+ * Build absolute section offsets from file order, header heights, measured body heights, and file gap.
+ *
+ * `leadingHeight` reserves rows ahead of the first section for stream content that scrolls with
+ * the files, such as a commit message.
+ */
 export function buildFileSectionLayouts(
   files: DiffFile[],
   bodyHeights: number[],
   headerHeights?: number[],
   fileGap = DEFAULT_FILE_GAP,
+  leadingHeight = 0,
 ) {
   const layouts: FileSectionLayout[] = [];
-  let cursor = 0;
+  let cursor = Math.max(0, leadingHeight);
 
   files.forEach((file, index) => {
-    const separatorHeight = index > 0 ? Math.max(0, fileGap) : 0;
-    const headerHeight = Math.max(0, headerHeights?.[index] ?? getInStreamFileHeaderHeight(index));
+    // Leading rows form a section of their own, so the first file gets the usual separator.
+    const separatorHeight = index > 0 || leadingHeight > 0 ? Math.max(0, fileGap) : 0;
+    const headerHeight = Math.max(
+      0,
+      headerHeights?.[index] ?? getInStreamFileHeaderHeight(index, leadingHeight > 0),
+    );
     const bodyHeight = Math.max(0, bodyHeights[index] ?? 0);
     const sectionTop = cursor;
     const headerTop = sectionTop + separatorHeight;

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { resolveTheme } from "../themes";
-import { buildInStreamFileHeaderHeights } from "./fileSectionLayout";
+import { buildFileSectionLayouts, buildInStreamFileHeaderHeights } from "./fileSectionLayout";
 import { measureDiffSectionGeometry } from "../diff/diffSectionGeometry";
 import { findViewportRowAnchor, resolveViewportRowAnchorTop } from "./viewportAnchor";
 import { createTestDiffFile, lines } from "../../../../../test/helpers/diff-helpers";
@@ -143,5 +143,56 @@ describe("viewport row anchors", () => {
     );
 
     expect(roundTripTop).toBe(unifiedDeletionTop!);
+  });
+
+  test("offsets anchors by the leading rows ahead of the first section", () => {
+    const file = createChangedFile();
+    const leadingHeight = 10;
+    const headerHeights = buildInStreamFileHeaderHeights([file], true);
+    const geometry = measureDiffSectionGeometry(
+      file,
+      "unified",
+      false,
+      theme,
+      [],
+      120,
+      true,
+      false,
+    );
+    const deletionTop = geometry.rowBounds.find((row) => row.key.includes(":deletion:"))!.top;
+    // Leading rows push the first section down by their height plus its separator and header.
+    const bodyTop = buildFileSectionLayouts(
+      [file],
+      [geometry.bodyHeight],
+      headerHeights,
+      undefined,
+      leadingHeight,
+    )[0]!.bodyTop;
+    expect(bodyTop).toBe(leadingHeight + 2);
+
+    const anchor = findViewportRowAnchor(
+      [file],
+      [geometry],
+      bodyTop + deletionTop,
+      headerHeights,
+      undefined,
+      undefined,
+      leadingHeight,
+    );
+    expect(anchor).toMatchObject({ fileId: file.id, rowOffsetWithin: 0 });
+    expect(anchor?.stableKey).toBe(
+      findViewportRowAnchor([file], [geometry], deletionTop, buildInStreamFileHeaderHeights([file]))
+        ?.stableKey,
+    );
+    expect(
+      resolveViewportRowAnchorTop(
+        [file],
+        [geometry],
+        anchor!,
+        headerHeights,
+        undefined,
+        leadingHeight,
+      ),
+    ).toBe(bodyTop + deletionTop);
   });
 });

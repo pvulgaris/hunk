@@ -45,12 +45,14 @@ export function findViewportRowAnchor(
   headerHeights: number[],
   preferredStableKey?: string | null,
   fileGap = DEFAULT_FILE_GAP,
+  leadingHeight = 0,
 ) {
   const fileSectionLayouts = buildFileSectionLayouts(
     files,
     sectionGeometry.map((metrics) => metrics?.bodyHeight ?? 0),
     headerHeights,
     fileGap,
+    leadingHeight,
   );
 
   for (let index = 0; index < files.length; index += 1) {
@@ -90,12 +92,14 @@ export function resolveViewportRowAnchorTop(
   anchor: ViewportRowAnchor,
   headerHeights: number[],
   fileGap = DEFAULT_FILE_GAP,
+  leadingHeight = 0,
 ) {
   const fileSectionLayouts = buildFileSectionLayouts(
     files,
     sectionGeometry.map((metrics) => metrics?.bodyHeight ?? 0),
     headerHeights,
     fileGap,
+    leadingHeight,
   );
 
   for (let index = 0; index < files.length; index += 1) {

@@ -235,7 +235,7 @@ describe("GitVcsAdapter", () => {
     git(repo, "add", "file.txt");
     git(repo, "commit", "-m", "initial");
     writeFileSync(join(repo, "file.txt"), "two\n");
-    git(repo, "commit", "-am", "change");
+    git(repo, "commit", "-am", "change", "-m", "Explain the change.\n\n- with a list");
 
     const showInput = {
       kind: "show",
@@ -257,6 +257,7 @@ describe("GitVcsAdapter", () => {
       revision: git(repo, "rev-parse", "HEAD").trim(),
       displayRevision: git(repo, "rev-parse", "--short=8", "HEAD").trim(),
       author: "test",
+      body: "Explain the change.\n\n- with a list",
     });
 
     const showFile = { path: "file.txt", changeType: "change", isUntracked: false } as const;

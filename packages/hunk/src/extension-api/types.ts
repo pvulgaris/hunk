@@ -21,7 +21,7 @@
  * Extensions can branch on `hunk.apiVersion` so a newer Hunk can keep loading
  * older extensions without guessing at their expectations.
  */
-export const HUNK_EXTENSION_API_VERSION = 28;
+export const HUNK_EXTENSION_API_VERSION = 29;
 export type HunkExtensionApiVersion = typeof HUNK_EXTENSION_API_VERSION;
 
 export type ExtensionNotifyType = "info" | "warning" | "error";
@@ -1526,6 +1526,13 @@ export interface ExtensionCommitReviewDescriptor extends ExtensionReviewDescript
   readonly author?: string;
   /** Date-time string used for relative commit time when available. */
   readonly authoredAt?: string;
+  /**
+   * Commit message content after the subject, preserving paragraph breaks.
+   *
+   * Newlines and tabs are the only control characters allowed, and the field is bounded to
+   * 16 KiB independently of the descriptor's 4 KiB summary budget.
+   */
+  readonly body?: string;
 }
 
 /** Compact display metadata for one commit included in a comparison. */

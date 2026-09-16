@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { commitReviewInfo, comparisonReviewInfo, vcsReviewAuthorLabel } from "./review-info";
+import {
+  commitReviewInfo,
+  comparisonReviewInfo,
+  reviewBodyText,
+  vcsReviewAuthorLabel,
+} from "./review-info";
 
 const commit = {
   revisionId: "a".repeat(40),
@@ -44,5 +49,18 @@ describe("provider-neutral review info", () => {
         },
       ],
     });
+  });
+
+  test("keeps commit body paragraphs while bounding and sanitizing them", () => {
+    expect(reviewBodyText("\n\nFirst line\r\n\r\n\tindented\u0007 bell\n\n")).toBe(
+      "First line\n\n\tindented  bell",
+    );
+    expect(reviewBodyText("   \n")).toBeUndefined();
+    expect(reviewBodyText(undefined)).toBeUndefined();
+    expect(reviewBodyText("界".repeat(10_000))).toBe("界".repeat(5_461));
+    expect(commitReviewInfo("Git", { ...commit, body: "Why.\n\nBecause." })).toMatchObject({
+      body: "Why.\n\nBecause.",
+    });
+    expect("body" in commitReviewInfo("Git", commit)).toBe(false);
   });
 });

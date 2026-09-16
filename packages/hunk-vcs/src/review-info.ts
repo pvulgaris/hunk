@@ -3,6 +3,8 @@ export interface VcsReviewCommit {
   revisionId: string;
   displayId: string;
   subject: string;
+  /** Commit message content after the subject, preserving paragraph breaks. */
+  body?: string;
   authorName: string;
   authorEmail?: string;
   authoredAt: string;
@@ -16,18 +18,40 @@ function sanitizeReviewText(value: string) {
     .trim();
 }
 
-/** Truncate one field without splitting Unicode code points or exceeding transport bytes. */
-function truncateReviewText(value: string, maxBytes: number) {
+/** Cut text at a code-point boundary so it never exceeds the transport byte budget. */
+function truncateBytes(value: string, maxBytes: number) {
   const encoder = new TextEncoder();
   let result = "";
   let bytes = 0;
-  for (const character of sanitizeReviewText(value)) {
+  for (const character of value) {
     const characterBytes = encoder.encode(character).byteLength;
     if (bytes + characterBytes > maxBytes) break;
     result += character;
     bytes += characterBytes;
   }
   return result;
+}
+
+/** Truncate one field without splitting Unicode code points or exceeding transport bytes. */
+function truncateReviewText(value: string, maxBytes: number) {
+  return truncateBytes(sanitizeReviewText(value), maxBytes);
+}
+
+const REVIEW_BODY_MAX_BYTES = 16 * 1024;
+
+/**
+ * Bound a commit body for the review descriptor while keeping its paragraph structure.
+ *
+ * Line endings normalize to `\n` and other terminal controls except tabs become spaces, so the
+ * descriptor validator accepts bodies from any platform instead of dropping the whole descriptor.
+ */
+export function reviewBodyText(value: string | undefined) {
+  if (!value) return undefined;
+  const body = value
+    .replace(/\r\n?/gu, "\n")
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]+/gu, " ")
+    .trim();
+  return body ? truncateBytes(body, REVIEW_BODY_MAX_BYTES) : undefined;
 }
 
 /** Resolve the same offline account-like author label used by interactive history. */
@@ -45,6 +69,7 @@ export function vcsReviewAuthorLabel(commit: VcsReviewCommit) {
 /** Build bounded metadata for one directly reviewed commit. */
 export function commitReviewInfo(provider: string, commit: VcsReviewCommit) {
   const authoredAt = Number.isNaN(Date.parse(commit.authoredAt)) ? undefined : commit.authoredAt;
+  const body = reviewBodyText(commit.body);
   return {
     kind: "commit" as const,
     provider: truncateReviewText(provider, 256),
@@ -53,6 +78,7 @@ export function commitReviewInfo(provider: string, commit: VcsReviewCommit) {
     displayRevision: truncateReviewText(commit.displayId, 64),
     author: truncateReviewText(vcsReviewAuthorLabel(commit), 512) || "Unknown author",
     ...(authoredAt === undefined ? {} : { authoredAt }),
+    ...(body === undefined ? {} : { body }),
   };
 }
 

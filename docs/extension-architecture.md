@@ -110,7 +110,9 @@ session-local divider drag override that automatic size.
 `packages/hunk/src/ui/components/panes/ExtensionPane.tsx` mounts panes with guarded actions,
 immutable review metadata, and failure containment. The fixed three-row `hunk:review-info` top
 pane uses one border row above two metadata rows and is available for delegated change requests or
-commits selected from interactive history, so ordinary reviews spend no geometry on it. `DiffPane` exposes optional current-line paint — the row
+commits selected from interactive history, so ordinary reviews spend no geometry on it. A commit
+descriptor's message `body` leads the review stream inside `DiffPane` instead, ahead of the first
+file section, so it scrolls away with the diff. `DiffPane` exposes optional current-line paint — the row
 painter plus the public `{ side, line }` address — without publishing Pierre
 rows, plans, cursor keys, or caches. Deprecated sidebar APIs
 normalize into this same registry and layout path.

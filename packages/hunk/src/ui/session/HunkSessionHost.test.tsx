@@ -32,13 +32,14 @@ const reviewCustomTheme = {
 } as const;
 
 /** Create a loaded history route for session-host navigation tests. */
-async function createHistoryRoute(subjects = ["History row"]) {
+async function createHistoryRoute(subjects = ["History row"], body?: string) {
   const commits = subjects.map((subject, index) => ({
     revisionId: `revision-${String.fromCharCode(97 + index)}`,
     displayId: index === 0 ? "revision" : `rev-${index}`,
     parentRevisionIds:
       index + 1 < subjects.length ? [`revision-${String.fromCharCode(98 + index)}`] : [],
     subject,
+    ...(body === undefined ? {} : { body }),
     authorName: "Ada",
     authoredAt: "2026-01-01T00:00:00Z",
     decorations: [],
@@ -121,7 +122,7 @@ async function previewTrailingCustomTheme(
 }
 
 test("routes repeated history reviews through fresh runtimes and returns instead of quitting", async () => {
-  const history = await createHistoryRoute();
+  const history = await createHistoryRoute(["History row"], "Body row explains why.\n\n- detail");
   const quit = mock(() => undefined);
   const stops: Array<ReturnType<typeof mock>> = [];
   let instance = 0;
@@ -172,6 +173,11 @@ test("routes repeated history reviews through fresh runtimes and returns instead
     ).toEndWith("revision ⧉");
     expect(reviewFrame).toContain("Ada ·");
     expect(reviewFrame).not.toContain("Ada · Test");
+    // The commit body leads the review stream below the pinned summary.
+    const reviewLines = reviewFrame.split("\n");
+    const bodyRow = reviewLines.findIndex((line) => line.includes("▌ Body row explains why."));
+    expect(bodyRow).toBeGreaterThan(reviewLines.findIndex((line) => line.includes("Ada ·")));
+    expect(reviewLines[bodyRow + 2]).toContain("▌ - detail");
     await act(async () => setup.mockInput.pressKey("q"));
     await settle(setup);
     expect(setup.captureCharFrame()).toContain("History row");

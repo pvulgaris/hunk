@@ -37,6 +37,17 @@ const layouts: FileSectionLayout[] = [
   },
 ];
 
+describe("buildFileSectionLayouts", () => {
+  test("starts the first section after the reserved leading rows", () => {
+    const files = [{ id: "alpha" }, { id: "beta" }] as DiffFile[];
+    // With leading rows the first file gets a separator and its own header after them.
+    const [alpha, beta] = buildFileSectionLayouts(files, [5, 4], undefined, 1, 7);
+    expect(alpha).toMatchObject({ sectionTop: 7, headerTop: 8, bodyTop: 9, sectionBottom: 14 });
+    expect(beta).toMatchObject({ sectionTop: 14, headerTop: 15, bodyTop: 16, sectionBottom: 20 });
+    expect(buildFileSectionLayouts(files, [5, 4])[0]).toMatchObject({ sectionTop: 0 });
+  });
+});
+
 describe("fileSectionLayout helpers", () => {
   test("findFileSectionAtOffset returns the containing section and clamps past the ends", () => {
     expect(findFileSectionAtOffset([], 3)).toBeNull();

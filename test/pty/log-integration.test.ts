@@ -119,6 +119,45 @@ describe("direct revision reviews", () => {
     }
   });
 
+  test("leads the review stream with the commit message body and scrolls it away", async () => {
+    const cwd = createHistoryRepo();
+    const body = Array.from({ length: 30 }, (_, index) => `Body line ${index + 1}`).join("\n");
+    writeFileSync(join(cwd, "history.ts"), "export const historyValue = 'third';\n");
+    git(cwd, ["commit", "-qam", "Third history commit", "-m", body]);
+    const session = await harness.launchHunk({
+      args: ["show", "HEAD", "--no-extensions"],
+      cwd,
+      cols: 100,
+      rows: 30,
+    });
+
+    try {
+      const review = await session.waitForText(/Body line 1\b/, { timeout: 15_000 });
+      const lines = review.split("\n");
+      const title = lines.findIndex((line) => line.includes("Third history commit"));
+      expect(title).toBeGreaterThan(0);
+      expect(lines[title + 1]).toContain("history · ");
+      const firstBody = lines.findIndex((line) => line.includes("▌ Body line 1"));
+      expect(firstBody).toBeGreaterThan(title + 1);
+      // No file header sits above the message: the first file's header follows it in the stream.
+      expect(lines.slice(0, firstBody).join("\n")).not.toContain("history.ts");
+      expect(lines[firstBody + 11]).toContain("▌ Body line 12");
+      expect(review).not.toContain("historyValue = 'third'");
+
+      await session.scrollDown(5, 60, firstBody + 2);
+      // Five wheel rows scroll the message away under the summary while the title stays.
+      const scrolled = await session.waitForText(
+        /^(?![\s\S]*▌ Body line 1\n)[\s\S]*▌ Body line 6\b/,
+        { timeout: 15_000 },
+      );
+      expect(scrolled).not.toContain("Body line 1\n");
+      expect(scrolled).not.toContain("Body line 5\n");
+      expect(scrolled.split("\n")[title]).toContain("Third history commit");
+    } finally {
+      session.close();
+    }
+  });
+
   test("shows included commits for a direct revision comparison", async () => {
     const cwd = createHistoryRepo();
     writeFileSync(join(cwd, "history.ts"), "export const historyValue = 'third';\n");

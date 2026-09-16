@@ -108,4 +108,29 @@ describe("review descriptor validation", () => {
       revision: "0123456789abcdef",
     });
   });
+
+  test("accepts a multi-line commit body outside the summary byte budget", () => {
+    const commit = { kind: "commit", provider: "Git", title: "Commit", revision: "abc1234" };
+    const body = `Explain the change.\n\n\tindented detail\n${"x".repeat(5 * 1024)}`;
+    expect(validateExtensionReviewDescriptor({ ...commit, body })).toMatchObject({
+      kind: "commit",
+      body,
+    });
+    expect(() => validateExtensionReviewDescriptor({ ...commit, body: "line\r\nnext" })).toThrow(
+      "control characters",
+    );
+    expect(() => validateExtensionReviewDescriptor({ ...commit, body: "" })).toThrow("non-empty");
+    expect(() =>
+      validateExtensionReviewDescriptor({ ...commit, body: "y".repeat(16 * 1024 + 1) }),
+    ).toThrow("byte limit");
+    expect(() =>
+      validateExtensionReviewDescriptor({
+        kind: "change-request",
+        provider: "GitHub",
+        title: "Title",
+        id: "#1",
+        body: "not a commit",
+      }),
+    ).toThrow("unknown fields");
+  });
 });

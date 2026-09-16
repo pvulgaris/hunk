@@ -13,7 +13,12 @@ const REVIEW_DESCRIPTOR_FIELD_LIMITS = Object.freeze({
   revision: 512,
   displayRevision: 64,
   authoredAt: 128,
+  /** Bounded on its own so a long commit message cannot evict the summary fields. */
+  body: 16 * 1024,
 });
+const SINGLE_LINE_CONTROL_PATTERN = /[\u0000-\u001f\u007f-\u009f]/u;
+/** A commit body keeps newlines and tabs; every other control character is still rejected. */
+const MULTILINE_CONTROL_PATTERN = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/u;
 
 /** Measure a public descriptor string in transport bytes rather than UTF-16 code units. */
 function descriptorByteLength(value: string) {
@@ -25,6 +30,7 @@ function validateDescriptorString(
   candidate: Record<string, unknown>,
   field: keyof typeof REVIEW_DESCRIPTOR_FIELD_LIMITS,
   required: boolean,
+  controlPattern = SINGLE_LINE_CONTROL_PATTERN,
 ): string | undefined {
   if (!Object.prototype.hasOwnProperty.call(candidate, field)) {
     if (!required) return undefined;
@@ -35,7 +41,7 @@ function validateDescriptorString(
   if (typeof value !== "string" || value.length === 0) {
     throw new Error(`review descriptor ${field} must be a non-empty string`);
   }
-  if (/[\u0000-\u001f\u007f-\u009f]/u.test(value)) {
+  if (controlPattern.test(value)) {
     throw new Error(`review descriptor ${field} cannot contain control characters`);
   }
   if (descriptorByteLength(value) > REVIEW_DESCRIPTOR_FIELD_LIMITS[field]) {
@@ -129,7 +135,7 @@ export function validateExtensionReviewDescriptor(value: unknown): ExtensionRevi
     kind === "change-request"
       ? ["id", "repository", "author", "base", "head", "state", "draft"]
       : kind === "commit"
-        ? ["revision", "displayRevision", "author", "authoredAt"]
+        ? ["revision", "displayRevision", "author", "authoredAt", "body"]
         : ["base", "head", "commitCount", "commits"];
   const allowed = new Set([...common, ...kindFields]);
   const ownKeys = Reflect.ownKeys(value);
@@ -169,6 +175,7 @@ export function validateExtensionReviewDescriptor(value: unknown): ExtensionRevi
   } else if (kind === "commit") {
     const authoredAt = validateDescriptorString(candidate, "authoredAt", false);
     const displayRevision = validateDescriptorString(candidate, "displayRevision", false);
+    const body = validateDescriptorString(candidate, "body", false, MULTILINE_CONTROL_PATTERN);
     if (authoredAt !== undefined && Number.isNaN(Date.parse(authoredAt))) {
       throw new Error("review descriptor authoredAt must be a valid timestamp");
     }
@@ -181,6 +188,7 @@ export function validateExtensionReviewDescriptor(value: unknown): ExtensionRevi
       ...(displayRevision === undefined ? {} : { displayRevision }),
       ...copyOptionalDescriptorFields(candidate, ["author"]),
       ...(authoredAt === undefined ? {} : { authoredAt }),
+      ...(body === undefined ? {} : { body }),
     };
   } else {
     const commits = validateComparisonCommits(candidate.commits);
@@ -205,7 +213,8 @@ export function validateExtensionReviewDescriptor(value: unknown): ExtensionRevi
     };
   }
 
-  const totalBytes = descriptorByteLength(JSON.stringify(descriptor));
+  // The body has its own limit above; JSON.stringify drops the undefined override.
+  const totalBytes = descriptorByteLength(JSON.stringify({ ...descriptor, body: undefined }));
   if (totalBytes > REVIEW_DESCRIPTOR_TOTAL_BYTES) {
     throw new Error("review descriptor exceeds the total byte limit");
   }

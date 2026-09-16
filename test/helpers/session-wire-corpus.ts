@@ -138,6 +138,7 @@ const COMMIT_KEYS = exhaustiveKeys<ExtensionCommitReviewDescriptor>()([
   "displayRevision",
   "author",
   "authoredAt",
+  "body",
 ]);
 const COMPARISON_KEYS = exhaustiveKeys<ExtensionComparisonReviewDescriptor>()([
   "kind",
@@ -211,6 +212,7 @@ const commitDescriptor: ExtensionCommitReviewDescriptor = {
   displayRevision: "0123456",
   author: "Ada Lovelace",
   authoredAt: FIXED_TIMESTAMP,
+  body: "Describe every launch mode once.\n\n- keep fixtures deterministic\n- exercise every key",
 };
 
 const comparisonCommit: ExtensionComparisonCommitDescriptor = {

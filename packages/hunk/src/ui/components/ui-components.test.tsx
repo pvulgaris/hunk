@@ -1270,6 +1270,212 @@ describe("UI components", () => {
     expect(noteAwareMemo).not.toContain("onStartUserNoteAtHunk,");
   });
 
+  test("DiffPane leads the stream with commit message rows that scroll away", async () => {
+    const files = createWindowingFiles(8);
+    const theme = resolveTheme("github-dark-default", null);
+    const scrollRef = createRef<ScrollBoxRenderable>();
+    const props = createDiffPaneProps(files, theme, {
+      leadingText: `Why this change exists.\n\n\tTabbed reason\n- ${"x".repeat(80)}`,
+      scrollRef,
+    });
+    const setup = await testRender(<DiffPane {...props} />, { width: 120, height: 14 });
+
+    try {
+      await act(async () => {
+        await setup.renderOnce();
+      });
+      const lines = setup.captureCharFrame().split("\n");
+      const first = lines.findIndex((line) => line.startsWith("▌ Why this change exists."));
+      // Nothing is pinned above the message: only the pane's padding row separates it from the
+      // border, and the first file follows it with the usual separator rule and header.
+      expect(first).toBe(2);
+      expect(lines[1]?.trim()).toBe("");
+      expect(lines[first + 1]?.trim()).toBe("▌");
+      // Tabs expand at the pane's tab width and long lines wrap at the diff content width.
+      expect(lines[first + 2]).toMatch(/^▌ {3,9}Tabbed reason/);
+      expect(lines[first + 3]).toBe(`▌ - ${"x".repeat(70)}${" ".repeat(46)}`);
+      expect(lines[first + 4]).toStartWith(`▌ ${"x".repeat(10)} `);
+      expect(lines[first + 5]?.trim()).toMatch(/^─+$/);
+      expect(lines[first + 6]).toContain(files[0]!.path);
+
+      // Let the mount-time selection reveal and its retry settle before scrolling by hand.
+      await act(async () => {
+        await Bun.sleep(20);
+        await setup.renderOnce();
+      });
+      await act(async () => {
+        scrollRef.current?.scrollTo(5);
+        await Bun.sleep(0);
+        await setup.renderOnce();
+      });
+      const scrolled = await waitForFrame(
+        setup,
+        (nextFrame) => !nextFrame.includes("Why this change exists."),
+        12,
+      );
+      expect(scrolled).toContain(files[0]!.path);
+      expect(scrolled).not.toContain("Tabbed reason");
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
+  test("DiffPane opens on a tall commit message but reveals the first hunk when navigated back to", async () => {
+    const files = createWindowingFiles(4);
+    const theme = resolveTheme("github-dark-default", null);
+    const scrollRef = createRef<ScrollBoxRenderable>();
+    const leadingText = Array.from({ length: 30 }, (_, index) => `Message line ${index + 1}`).join(
+      "\n",
+    );
+    // App drives reveals through selectedHunkRevealRequestId, so the mount does not reveal and
+    // every later selection bumps the request like `[` and `]` do.
+    let selectFile: (fileId: string) => void = () => {};
+    function Harness() {
+      const [selection, setSelection] = useState({ fileId: files[0]!.id, request: 0 });
+      selectFile = (fileId) =>
+        setSelection((current) => ({ fileId, request: current.request + 1 }));
+      return (
+        <DiffPane
+          {...createDiffPaneProps(files, theme, {
+            leadingText,
+            scrollRef,
+            selectedFileId: selection.fileId,
+            selectedHunkRevealRequestId: selection.request,
+          })}
+        />
+      );
+    }
+    const setup = await testRender(<Harness />, { width: 120, height: 14 });
+
+    try {
+      await act(async () => {
+        await Bun.sleep(20);
+        await setup.renderOnce();
+      });
+      // 30 message rows, the separator rule, and the first file's header put its hunk at row 32.
+      const leadingHeight = 32;
+      const viewportHeight = scrollRef.current!.viewport.height;
+      expect(viewportHeight).toBeLessThan(leadingHeight);
+      expect(setup.captureCharFrame()).toContain("▌ Message line 1");
+      expect(scrollRef.current?.scrollTop).toBe(0);
+
+      // Render once so the target rows have geometry before the reveal's retry runs.
+      await act(async () => {
+        selectFile(files[1]!.id);
+        await setup.renderOnce();
+        await Bun.sleep(20);
+        await setup.renderOnce();
+      });
+      expect(scrollRef.current!.scrollTop).toBeGreaterThan(leadingHeight);
+
+      // Render once so the target rows have geometry before the reveal's retry runs.
+      await act(async () => {
+        selectFile(files[0]!.id);
+        await setup.renderOnce();
+        await Bun.sleep(20);
+        await setup.renderOnce();
+      });
+      // The first hunk's top row is inside the viewport, so the diff is what the reviewer sees.
+      const returnedTop = scrollRef.current!.scrollTop;
+      expect(returnedTop).toBeGreaterThan(leadingHeight - viewportHeight);
+      expect(returnedTop).toBeLessThanOrEqual(leadingHeight);
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
+  test("DiffPane keeps the top source row when a narrower width rewraps the commit message", async () => {
+    const files = createWindowingFiles(6);
+    const theme = resolveTheme("github-dark-default", null);
+    const scrollRef = createRef<ScrollBoxRenderable>();
+    // Ten 100-cell lines wrap to two rows at width 72 and three rows at width 36.
+    const leadingText = Array.from({ length: 10 }, () => "m".repeat(100)).join("\n");
+    let setWidth: (width: number) => void = () => {};
+    function Harness() {
+      const [diffContentWidth, setDiffContentWidth] = useState(72);
+      setWidth = setDiffContentWidth;
+      return (
+        <DiffPane
+          {...createDiffPaneProps(files, theme, {
+            diffContentWidth,
+            leadingText,
+            scrollRef,
+            selectedHunkRevealRequestId: 0,
+          })}
+        />
+      );
+    }
+    const setup = await testRender(<Harness />, { width: 120, height: 14 });
+
+    try {
+      await act(async () => {
+        await Bun.sleep(20);
+        await setup.renderOnce();
+      });
+      // Anchors bind to body rows, so land inside the second file's body rather than on a header.
+      await act(async () => {
+        scrollRef.current?.scrollTo(28);
+        await setup.renderOnce();
+        await Bun.sleep(20);
+        await setup.renderOnce();
+      });
+      const before = scrollRef.current!.scrollTop;
+      expect(before).toBe(28);
+
+      // Lay the taller message out before the restore retries run, so the target is reachable.
+      await act(async () => {
+        setWidth(36);
+        await setup.renderOnce();
+        for (let step = 0; step < 5; step += 1) {
+          await Bun.sleep(12);
+          await setup.renderOnce();
+        }
+      });
+      // The message grew by ten rows, so the same source row needs ten more rows of offset.
+      expect(scrollRef.current?.scrollTop).toBe(before + 10);
+
+      // A file header at the top has no row anchor; widening back must still shift it by the
+      // ten rows the message lost. Find such a row by scrolling until the first stream row under
+      // the pinned header is another file's header.
+      await act(async () => {
+        await Bun.sleep(100);
+        await setup.renderOnce();
+      });
+      let headerTop = -1;
+      for (let offset = before + 12; offset < before + 30 && headerTop < 0; offset += 1) {
+        await act(async () => {
+          scrollRef.current?.scrollTo(offset);
+          await setup.renderOnce();
+        });
+        const row = setup.captureCharFrame().split("\n")[3] ?? "";
+        if (/window-\d\.ts/.test(row) && !row.startsWith("▌")) headerTop = offset;
+      }
+      expect(headerTop).toBeGreaterThan(0);
+      await act(async () => {
+        await Bun.sleep(60);
+        await setup.renderOnce();
+      });
+      expect(scrollRef.current?.scrollTop).toBe(headerTop);
+      await act(async () => {
+        setWidth(72);
+        await setup.renderOnce();
+        for (let step = 0; step < 5; step += 1) {
+          await Bun.sleep(12);
+          await setup.renderOnce();
+        }
+      });
+      expect(scrollRef.current?.scrollTop).toBe(headerTop - 10);
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
   test("DiffPane accepts add-note hover on the first wrapped frame", async () => {
     const files = createWindowingFiles(6);
     const theme = resolveTheme("github-dark-default", null);

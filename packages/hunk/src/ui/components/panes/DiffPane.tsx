@@ -72,7 +72,6 @@ import {
   buildInStreamFileHeaderHeights,
   collectIntersectingFileSectionIds,
   findHeaderOwningFileSection,
-  shouldRenderInStreamFileHeader,
   type FileSectionLayout,
 } from "../../lib/fileSectionLayout";
 import { diffHunkId, diffSectionId } from "../../lib/ids";
@@ -92,6 +91,9 @@ import { DiffSection } from "./DiffSection";
 import type { FileViewRowFailure } from "../../fileViews/types";
 import type { ValidatedLineHighlight } from "../../highlights/validate";
 import { DiffFileHeaderRow } from "./DiffFileHeaderRow";
+import { expandDiffTabs } from "../../diff/codeColumns";
+import { diffRailMarker } from "../../diff/rowStyle";
+import { wrapTextByWidth } from "../../lib/text";
 import {
   createExtensionCurrentLinePaint,
   type ExtensionCurrentLinePaintUpdate,
@@ -351,6 +353,7 @@ export function DiffPane({
   tabWidth = DEFAULT_TAB_WIDTH,
   fileGap = DEFAULT_FILE_GAP,
   hunkGap = DEFAULT_HUNK_GAP,
+  leadingText,
   wheelScrollLines = DEFAULT_WHEEL_SCROLL_LINES,
   wrapLines,
   wrapToggleScrollTop,
@@ -436,6 +439,8 @@ export function DiffPane({
   tabWidth?: number;
   fileGap?: number;
   hunkGap?: number;
+  /** Text rendered ahead of the first file, such as a commit message; it scrolls with the stream. */
+  leadingText?: string;
   wheelScrollLines?: WheelScrollLines;
   wrapLines: boolean;
   wrapToggleScrollTop: number | null;
@@ -858,6 +863,8 @@ export function DiffPane({
   const prevScrollTopRef = useRef(0);
   const hasReadScrollViewportRef = useRef(false);
   const previousSectionGeometryRef = useRef<DiffSectionGeometry[] | null>(null);
+  // Tracks the leading rows the previous section geometry was measured against.
+  const previousLeadingHeightRef = useRef(0);
   const previousFilesRef = useRef<DiffFile[]>(files);
   const previousLayoutRef = useRef(layout);
   const previousWrapLinesRef = useRef(wrapLines);
@@ -1091,7 +1098,21 @@ export function DiffPane({
     wrapLines,
   ]);
 
-  const sectionHeaderHeights = useMemo(() => buildInStreamFileHeaderHeights(files), [files]);
+  const leadingRows = useMemo(
+    () =>
+      leadingText
+        ? leadingText.split("\n").flatMap((line) => {
+            const chunks = wrapTextByWidth(expandDiffTabs(line, tabWidth), diffContentWidth);
+            return chunks.length > 0 ? chunks.map((chunk) => chunk.text) : [""];
+          })
+        : [],
+    [diffContentWidth, leadingText, tabWidth],
+  );
+  const leadingHeight = leadingRows.length;
+  const sectionHeaderHeights = useMemo(
+    () => buildInStreamFileHeaderHeights(files, leadingHeight > 0),
+    [files, leadingHeight],
+  );
   const reserveAddNoteColumn = Boolean(onStartUserNoteAtHunk);
 
   const baseSectionGeometry = useMemo(
@@ -1192,8 +1213,15 @@ export function DiffPane({
     [sectionGeometry],
   );
   const fileSectionLayouts = useMemo(
-    () => buildFileSectionLayouts(files, estimatedBodyHeights, sectionHeaderHeights, fileGap),
-    [estimatedBodyHeights, fileGap, files, sectionHeaderHeights],
+    () =>
+      buildFileSectionLayouts(
+        files,
+        estimatedBodyHeights,
+        sectionHeaderHeights,
+        fileGap,
+        leadingHeight,
+      ),
+    [estimatedBodyHeights, fileGap, files, leadingHeight, sectionHeaderHeights],
   );
   const totalContentHeight = fileSectionLayouts[fileSectionLayouts.length - 1]?.sectionBottom ?? 0;
   const previousScrollEdgeRequestIdRef = useRef(scrollEdgeRequest?.id ?? 0);
@@ -1344,10 +1372,12 @@ export function DiffPane({
     // The current file header always owns the pinned top row.
     // Use the previous visible row to decide ownership so the next file's real header can still
     // scroll through the stream before the pinned header hands off to it on the following row.
-    const owner = findHeaderOwningFileSection(
-      fileSectionLayouts,
-      Math.max(0, effectiveScrollTop - 1),
-    );
+    const previousRow = Math.max(0, effectiveScrollTop - 1);
+    // Leading rows belong to no file, so nothing is pinned until the first header scrolls up.
+    if (previousRow < (fileSectionLayouts[0]?.headerTop ?? 0)) {
+      return null;
+    }
+    const owner = findHeaderOwningFileSection(fileSectionLayouts, previousRow);
 
     return owner ? (files[owner.sectionIndex] ?? null) : (files[0] ?? null);
   }, [effectiveScrollTop, fileSectionLayouts, files]);
@@ -1982,12 +2012,17 @@ export function DiffPane({
     const wrapChanged = previousWrapLinesRef.current !== wrapLines;
     const previousSectionMetrics = previousSectionGeometryRef.current;
     const previousFiles = previousFilesRef.current;
+    const previousLeadingHeight = previousLeadingHeightRef.current;
+    const leadingChanged = previousLeadingHeight !== leadingHeight;
     const currentDraftNoteId = draftNoteId;
     const draftChanged = previousDraftNoteIdRef.current !== currentDraftNoteId;
 
     if (draftChanged && previousSectionMetrics && previousFiles.length > 0) {
       const previousScrollTop = scrollRef.current?.scrollTop ?? scrollViewport.top;
-      const previousSectionHeaderHeights = buildInStreamFileHeaderHeights(previousFiles);
+      const previousSectionHeaderHeights = buildInStreamFileHeaderHeights(
+        previousFiles,
+        previousLeadingHeight > 0,
+      );
       const anchor =
         lastViewportRowAnchorRef.current ??
         findViewportRowAnchor(
@@ -1997,6 +2032,7 @@ export function DiffPane({
           previousSectionHeaderHeights,
           undefined,
           fileGap,
+          previousLeadingHeight,
         );
       const cursorToPreserve = scrollToNote ? null : lineCursor;
       const previousCursorSectionIndex = cursorToPreserve
@@ -2010,6 +2046,7 @@ export function DiffPane({
                 previousSectionMetrics.map((metrics) => metrics?.bodyHeight ?? 0),
                 previousSectionHeaderHeights,
                 fileGap,
+                previousLeadingHeight,
               ),
               previousSectionMetrics,
               previousCursorSectionIndex,
@@ -2032,6 +2069,7 @@ export function DiffPane({
               anchor,
               sectionHeaderHeights,
               fileGap,
+              leadingHeight,
             )
           : null);
 
@@ -2069,6 +2107,7 @@ export function DiffPane({
         previousWrapLinesRef.current = wrapLines;
         previousSectionGeometryRef.current = sectionGeometry;
         previousFilesRef.current = files;
+        previousLeadingHeightRef.current = leadingHeight;
 
         return () => {
           timeouts.forEach((timeout) => clearTimeout(timeout));
@@ -2076,8 +2115,16 @@ export function DiffPane({
       }
     }
 
-    if ((layoutChanged || wrapChanged) && previousSectionMetrics && previousFiles.length > 0) {
-      const previousSectionHeaderHeights = buildInStreamFileHeaderHeights(previousFiles);
+    // A rewrapped message moves every file the same way a layout toggle does, so it restores too.
+    if (
+      (layoutChanged || wrapChanged || leadingChanged) &&
+      previousSectionMetrics &&
+      previousFiles.length > 0
+    ) {
+      const previousSectionHeaderHeights = buildInStreamFileHeaderHeights(
+        previousFiles,
+        previousLeadingHeight > 0,
+      );
       const previousScrollTop =
         // Prefer the synchronously captured pre-toggle position so anchor restoration does not
         // race the polling-based viewport snapshot.
@@ -2094,20 +2141,28 @@ export function DiffPane({
         previousSectionHeaderHeights,
         lastViewportRowAnchorRef.current?.stableKey,
         fileGap,
+        previousLeadingHeight,
       );
-      if (anchor) {
-        const nextTop = resolveViewportRowAnchorTop(
-          files,
-          sectionGeometry,
-          anchor,
-          sectionHeaderHeights,
-          fileGap,
-        );
+      // Headers and separators carry no row anchor. A leading-height change alone shifts every
+      // row at or below the first section by the same amount, so keep such a top row in place.
+      const nextTop = anchor
+        ? resolveViewportRowAnchorTop(
+            files,
+            sectionGeometry,
+            anchor,
+            sectionHeaderHeights,
+            fileGap,
+            leadingHeight,
+          )
+        : leadingChanged && previousScrollTop >= previousLeadingHeight
+          ? previousScrollTop + leadingHeight - previousLeadingHeight
+          : null;
+      if (nextTop !== null) {
         const restoreViewportAnchor = () => {
           scrollRef.current?.scrollTo(nextTop);
         };
 
-        lastViewportRowAnchorRef.current = anchor;
+        if (anchor) lastViewportRowAnchorRef.current = anchor;
         suppressViewportSelectionSync();
         restoreViewportAnchor();
         // Retry across a couple of repaint cycles so the restored top-row anchor sticks
@@ -2120,6 +2175,7 @@ export function DiffPane({
         previousWrapLinesRef.current = wrapLines;
         previousSectionGeometryRef.current = sectionGeometry;
         previousFilesRef.current = files;
+        previousLeadingHeightRef.current = leadingHeight;
 
         return () => {
           timeouts.forEach((timeout) => clearTimeout(timeout));
@@ -2133,7 +2189,9 @@ export function DiffPane({
     previousWrapLinesRef.current = wrapLines;
     previousSectionGeometryRef.current = sectionGeometry;
     previousFilesRef.current = files;
+    previousLeadingHeightRef.current = leadingHeight;
   }, [
+    leadingHeight,
     draftNoteFileId,
     draftNoteId,
     fileGap,
@@ -2168,12 +2226,21 @@ export function DiffPane({
       sectionHeaderHeights,
       lastViewportRowAnchorRef.current?.stableKey,
       fileGap,
+      leadingHeight,
     );
 
     if (nextAnchor) {
       lastViewportRowAnchorRef.current = nextAnchor;
     }
-  }, [fileGap, files, scrollRef, scrollViewport.top, sectionGeometry, sectionHeaderHeights]);
+  }, [
+    fileGap,
+    files,
+    leadingHeight,
+    scrollRef,
+    scrollViewport.top,
+    sectionGeometry,
+    sectionHeaderHeights,
+  ]);
 
   useLayoutEffect(() => {
     if (previousSelectedFileTopAlignRequestIdRef.current === selectedFileTopAlignRequestId) {
@@ -2578,6 +2645,25 @@ export function DiffPane({
                   key={`diff-content:${layout}:${wrapLines ? "wrap" : "nowrap"}:tabs-${tabWidth}:${width}`}
                   style={{ width: "100%", flexDirection: "column", overflow: "visible" }}
                 >
+                  {leadingRows.length > 0 ? (
+                    <box
+                      style={{
+                        width: "100%",
+                        height: leadingHeight,
+                        flexDirection: "column",
+                        backgroundColor: theme.panel,
+                      }}
+                    >
+                      {leadingRows.map((row, index) => (
+                        <box key={index} style={{ width: "100%", height: 1, flexDirection: "row" }}>
+                          <text fg={theme.accent} bg={theme.panel}>
+                            {diffRailMarker()}
+                          </text>
+                          <text fg={theme.text} bg={theme.panel}>{` ${row}`}</text>
+                        </box>
+                      ))}
+                    </box>
+                  ) : null}
                   {fileRenderItems.map((item) => {
                     if (item.kind === "spacer") {
                       return (
@@ -2594,7 +2680,8 @@ export function DiffPane({
 
                     const { sectionIndex: index } = item;
                     const file = files[index];
-                    if (!file) {
+                    const sectionLayout = fileSectionLayouts[index];
+                    if (!file || !sectionLayout) {
                       return null;
                     }
 
@@ -2622,8 +2709,8 @@ export function DiffPane({
                         }
                         sectionGeometry={sectionGeometry[index]}
                         separatorWidth={separatorWidth}
-                        showHeader={shouldRenderInStreamFileHeader(index)}
-                        separatorHeight={index > 0 ? fileGap : 0}
+                        showHeader={sectionLayout.bodyTop > sectionLayout.headerTop}
+                        separatorHeight={sectionLayout.headerTop - sectionLayout.sectionTop}
                         showLineNumbers={showLineNumbers}
                         showHunkHeaders={showHunkHeaders}
                         sourceStatus={sourceStatusByFileId[file.id]}

@@ -15,6 +15,7 @@ import type { PersistedViewPreferences } from "../../core/run/config";
 import type { InteractiveSessionInitialization } from "../../core/session/initialization";
 import type { ExtensionVcsHistoryReviewAction } from "../../extension-api/types";
 import { parseExtensionReviewDescriptor } from "../../core/reviewDescriptor";
+import { reviewBodyText } from "@hunk/vcs/review-info";
 import type { ExtensionSession } from "../../extensions/session";
 import type { ExtensionLoadResult } from "../../extensions/types";
 import { AppHost } from "../AppHost";
@@ -80,6 +81,7 @@ function historyReviewDescriptor(
 ) {
   const newest = outcome.selection.newestCommit;
   if (outcome.count === 1) {
+    const body = reviewBodyText(newest.body);
     return parseExtensionReviewDescriptor({
       kind: "commit",
       provider: runtime.providerName,
@@ -88,6 +90,7 @@ function historyReviewDescriptor(
       displayRevision: truncateReviewText(newest.displayId, 64),
       author: resolveHistoryAuthorLabel(newest),
       authoredAt: newest.authoredAt,
+      ...(body === undefined ? {} : { body }),
     });
   }
 
